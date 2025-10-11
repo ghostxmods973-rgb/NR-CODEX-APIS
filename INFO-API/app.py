@@ -193,6 +193,8 @@ async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
 
+import sys
+
 if __name__ == '__main__':
-    asyncio.run(startup())
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    app.run(host='127.0.0.1', port=port, debug=False)
