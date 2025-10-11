@@ -231,5 +231,9 @@ def oauth_guest():
     with app.test_request_context('/api/token', query_string=params):
         return majorlogin_jwt()
 
+import sys
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=1080, debug=False)
+    # Accept port from host.py or fallback
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 1080
+    app.run(host='127.0.0.1', port=port, debug=False)
