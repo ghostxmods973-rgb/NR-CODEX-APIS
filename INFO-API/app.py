@@ -3,7 +3,6 @@ import time
 import httpx
 import json
 from collections import defaultdict
-from functools import wraps
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from cachetools import TTLCache
@@ -13,6 +12,7 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 import base64
+import sys
 
 # === Settings ===
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
@@ -166,19 +166,29 @@ def format_response(data):
         "socialinfo": data.get("socialInfo", {})
     }
 
+# === Fetch Region from External API ===
+async def fetch_region_from_uid(uid: str) -> str:
+    url = f"https://check-api-beige-one.vercel.app/check?uid={uid}"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, timeout=10)
+        data = resp.json()
+        if data.get("status") != "success" or "region" not in data:
+            raise ValueError(f"Could not fetch region for UID {uid}")
+        return data["region"]
+
 # === API Routes ===
 @app.route('/player-info')
 def get_account_info():
-    region = request.args.get('region')
     uid = request.args.get('uid')
-    if not uid or not region:
-        return jsonify({"error": "Please provide UID and REGION."}), 400
+    if not uid:
+        return jsonify({"error": "Please provide UID."}), 400
     try:
+        region = asyncio.run(fetch_region_from_uid(uid))
         return_data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
         formatted = format_response(return_data)
         return jsonify(formatted), 200
     except Exception as e:
-        return jsonify({"error": "Invalid UID or Region. Please check and try again."}), 500
+        return jsonify({"error": f"Failed to fetch account info: {e}"}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
 def refresh_tokens_endpoint():
@@ -192,11 +202,7 @@ def refresh_tokens_endpoint():
 async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
+
 if __name__ == '__main__':
-    port = 9000
-    print(f"INFO-API starting on port {port} ...")
-    try:
-        asyncio.run(startup())
-    except Exception as e:
-        print(f"[Warning] Startup failed: {e} - continuing with empty tokens")
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
     app.run(host='127.0.0.1', port=port, debug=False)
