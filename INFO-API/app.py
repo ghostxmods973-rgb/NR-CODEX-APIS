@@ -192,7 +192,6 @@ def refresh_tokens_endpoint():
 async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
-
 import sys
 
 if __name__ == '__main__':
