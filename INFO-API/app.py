@@ -168,13 +168,28 @@ def format_response(data):
 
 # === Fetch Region from External API ===
 async def fetch_region_from_uid(uid: str) -> str:
+    # Try the REGION-API endpoint first
+    url = f"https://nr-codex-apis.onrender.com/REGION-API/check?uid={uid}"
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, timeout=10)
+            data = resp.json()
+            if data.get("formatted_response", {}).get("region"):
+                return data["formatted_response"]["region"].upper()
+        except Exception:
+            pass  # Fallback to BAN-CHECK-API if REGION-API fails
+
+    # Fallback to BAN-CHECK-API
     url = f"https://nr-codex-apis.onrender.com/BAN-CHECK-API/check?uid={uid}"
     async with httpx.AsyncClient() as client:
-        resp = await client.get(url, timeout=10)
-        data = resp.json()
-        if data.get("status") != "success" or "region" not in data:
+        try:
+            resp = await client.get(url, timeout=10)
+            data = resp.json()
+            if data.get("status") == "success" and data.get("region"):
+                return data["region"].upper()
             raise ValueError(f"Could not fetch region for UID {uid}")
-        return data["region"]
+        except Exception as e:
+            raise ValueError(f"Failed to fetch region for UID {uid}: {str(e)}")
 
 # === API Routes ===
 @app.route('/player-info')
@@ -184,11 +199,34 @@ def get_account_info():
         return jsonify({"error": "Please provide UID."}), 400
     try:
         region = asyncio.run(fetch_region_from_uid(uid))
+        if region not in SUPPORTED_REGIONS:
+            return jsonify({"error": f"Unsupported region: {region}"}), 400
         return_data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
         formatted = format_response(return_data)
         return jsonify(formatted), 200
     except Exception as e:
-        return jsonify({"error": f"Failed to fetch account info: {e}"}), 500
+        return jsonify({"error": f"Failed to fetch account info: {str(e)}"}), 500
+
+@app.route('/get')
+def get_account_info_with_region():
+    uid = request.args.get('uid')
+    region = request.args.get('region')
+    if not uid:
+        return jsonify({"error": "Please provide UID."}), 400
+    if not region:
+        try:
+            region = asyncio.run(fetch_region_from_uid(uid))
+        except Exception as e:
+            return jsonify({"error": f"Failed to fetch region: {str(e)}"}), 500
+    region = region.upper()
+    if region not in SUPPORTED_REGIONS:
+        return jsonify({"error": f"Unsupported region: {region}"}), 400
+    try:
+        return_data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
+        formatted = format_response(return_data)
+        return jsonify(formatted), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch account info: {str(e)}"}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
 def refresh_tokens_endpoint():
@@ -196,7 +234,7 @@ def refresh_tokens_endpoint():
         asyncio.run(initialize_tokens())
         return jsonify({'message': 'Tokens refreshed for all regions.'}), 200
     except Exception as e:
-        return jsonify({'error': f'Refresh failed: {e}'}), 500
+        return jsonify({'error': f'Refresh failed: {str(e)}'}), 500
 
 # === Startup ===
 async def startup():
@@ -205,4 +243,6 @@ async def startup():
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    # Run the startup coroutine to initialize tokens
+    asyncio.run(startup())
     app.run(host='127.0.0.1', port=port, debug=False)
