@@ -6,6 +6,7 @@ import requests
 import my_pb2
 import output_pb2
 import jwt
+import asyncio
 
 app = Flask(__name__)
 
@@ -13,24 +14,25 @@ AES_KEY = b'Yg&tc%DEuh6%Zc^8'
 AES_IV = b'6oyZDr22E3ychjM%'
 
 def encrypt_message(plaintext):
-    cipher = AES.new(AES_KEY, AES.MODE_CBC, AES_IV)
-    padded_message = pad(plaintext, AES.block_size)
-    return cipher.encrypt(padded_message)
+    """Encrypt message using AES CBC mode"""
+    try:
+        cipher = AES.new(AES_KEY, AES.MODE_CBC, AES_IV)
+        padded_message = pad(plaintext, AES.block_size)
+        return cipher.encrypt(padded_message)
+    except Exception as e:
+        raise Exception(f"Encryption failed: {str(e)}")
 
 def fetch_open_id(access_token):
+    """Fetch open_id using access token"""
     try:
-    
+        # First request to get UID
         uid_url = "https://prod-api.reward.ff.garena.com/redemption/api/auth/inspect_token/"
         uid_headers = {
             "authority": "prod-api.reward.ff.garena.com",
-            "method": "GET",
-            "path": "/redemption/api/auth/inspect_token/",
-            "scheme": "https",
             "accept": "application/json, text/plain, */*",
             "accept-encoding": "gzip, deflate, br",
             "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             "access-token": access_token,
-            "cookie": "_gid=GA1.2.444482899.1724033242; _ga_XB5PSHEQB4=GS1.1.1724040177.1.1.1724040732.0.0.0; token_session=cb73a97aaef2f1c7fd138757dc28a08f92904b1062e66c; _ga_KE3SY7MRSD=GS1.1.1724041788.0.0.1724041788.0; _ga_RF9R6YT614=GS1.1.1724041788.0.0.1724041788.0; _ga=GA1.1.1843180339.1724033241; apple_state_key=817771465df611ef8ab00ac8aa985783; _ga_G8QGMJPWWV=GS1.1.1724049483.1.1.1724049880.0.0; datadome=HBTqAUPVsbBJaOLirZCUkN3rXjf4gRnrZcNlw2WXTg7bn083SPey8X~ffVwr7qhtg8154634Ee9qq4bCkizBuiMZ3Qtqyf3Isxmsz6GTH_b6LMCKWF4Uea_HSPk;",
             "origin": "https://reward.ff.garena.com",
             "referer": "https://reward.ff.garena.com/",
             "sec-ch-ua": '"Not.A/Brand";v="99", "Chromium";v="124"',
@@ -42,21 +44,21 @@ def fetch_open_id(access_token):
             "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
 
-        uid_res = requests.get(uid_url, headers=uid_headers)
+        uid_res = requests.get(uid_url, headers=uid_headers, timeout=10)
+        uid_res.raise_for_status()
         uid_data = uid_res.json()
         uid = uid_data.get("uid")
 
         if not uid:
-            return None, "Failed to extract UID"
+            return None, "Failed to extract UID from access token"
 
-        
+        # Second request to get open_id
         openid_url = "https://shop2game.com/api/auth/player_id_login"
         openid_headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ar-MA,ar;q=0.9,en-US;q=0.8,en;q=0.7,ar-AE;q=0.6,fr-FR;q=0.5,fr;q=0.4",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Cookie": "source=mb; region=MA; mspid2=ca21e6ccc341648eea845c7f94b92a3c; language=ar; _ga=GA1.1.1955196983.1741710601; datadome=WY~zod4Q8I3~v~GnMd68u1t1ralV5xERfftUC78yUftDKZ3jIcyy1dtl6kdWx9QvK9PpeM~A_qxq3LV3zzKNs64F_TgsB5s7CgWuJ98sjdoCqAxZRPWpa8dkyfO~YBgr; session_key=v0tmwcmf1xqkp7697hhsno0di1smy3dm; _ga_0NY2JETSPJ=GS1.1.1741710601.1.1.1741710899.0.0.0",
             "Origin": "https://shop2game.com",
             "Referer": "https://shop2game.com/",
             "Sec-Fetch-Dest": "empty",
@@ -66,40 +68,30 @@ def fetch_open_id(access_token):
             "sec-ch-ua-mobile": "?1",
             "sec-ch-ua-platform": '"Android"'
         }
+        
         payload = {
             "app_id": 100067,
             "login_id": str(uid)
         }
 
-        openid_res = requests.post(openid_url, headers=openid_headers, json=payload)
+        openid_res = requests.post(openid_url, headers=openid_headers, json=payload, timeout=10)
+        openid_res.raise_for_status()
         openid_data = openid_res.json()
         open_id = openid_data.get("open_id")
 
         if not open_id:
-            return None, "Failed to extract open_id"
+            return None, "Failed to extract open_id from UID"
 
         return open_id, None
 
+    except requests.RequestException as e:
+        return None, f"Network error: {str(e)}"
     except Exception as e:
-        return None, f"Exception occurred: {str(e)}"
+        return None, f"Unexpected error: {str(e)}"
 
-@app.route('/access-jwt', methods=['GET'])
-def majorlogin_jwt():
-    access_token = request.args.get('access_token')
-    provided_open_id = request.args.get('open_id')
-
-    if not access_token:
-        return jsonify({"message": "missing access_token"}), 400
-
-    open_id = provided_open_id
-    if not open_id:
-        open_id, error = fetch_open_id(access_token)
-        if error:
-            return jsonify({"message": error}), 400
-
-    platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]  
-
-    for platform_type in platforms:
+def try_platform_login(open_id, access_token, platform_type):
+    """Try login for a specific platform"""
+    try:
         game_data = my_pb2.GameData()
         game_data.timestamp = "2024-12-05 18:15:32"
         game_data.game_name = "free fire"
@@ -140,52 +132,81 @@ def majorlogin_jwt():
             "X-GA": "v1 1",
             "ReleaseVersion": "OB50"
         }
+        
         edata = bytes.fromhex(hex_encrypted_data)
 
-        try:
-            response = requests.post(url, data=edata, headers=headers, verify=False, timeout=5)
+        response = requests.post(url, data=edata, headers=headers, timeout=10)
+        response.raise_for_status()
 
-            if response.status_code == 200:
-                data_dict = None
+        if response.status_code == 200:
+            # Parse response
+            data_dict = None
+            try:
+                example_msg = output_pb2.Garena_420()
+                example_msg.ParseFromString(response.content)
+                data_dict = {field.name: getattr(example_msg, field.name)
+                             for field in example_msg.DESCRIPTOR.fields
+                             if field.name not in ["binary", "binary_data", "Garena420"]}
+            except Exception:
                 try:
-                    example_msg = output_pb2.Garena_420()
-                    example_msg.ParseFromString(response.content)
-                    data_dict = {field.name: getattr(example_msg, field.name)
-                                 for field in example_msg.DESCRIPTOR.fields
-                                 if field.name not in ["binary", "binary_data", "Garena420"]}
+                    data_dict = response.json()
+                except ValueError:
+                    return None
+
+            if data_dict and "token" in data_dict:
+                token_value = data_dict["token"]
+                try:
+                    decoded_token = jwt.decode(token_value, options={"verify_signature": False})
                 except Exception:
-                    try:
-                        data_dict = response.json()
-                    except ValueError:
-                        continue  
+                    decoded_token = {}
 
-                if data_dict and "token" in data_dict:
-                    token_value = data_dict["token"]
-                    try:
-                        decoded_token = jwt.decode(token_value, options={"verify_signature": False})
-                    except Exception as e:
-                        decoded_token = {}
+                return {
+                    "account_id": decoded_token.get("account_id"),
+                    "account_name": decoded_token.get("nickname"),
+                    "open_id": open_id,
+                    "access_token": access_token,
+                    "platform": decoded_token.get("external_type"),
+                    "region": decoded_token.get("lock_region"),
+                    "status": "success",
+                    "token": token_value
+                }
+        
+        return None
 
-                    result = {
-                        "account_id": decoded_token.get("account_id"),
-                        "account_name": decoded_token.get("nickname"),
-                        "open_id": open_id,
-                        "access_token": access_token,
-                        "platform": decoded_token.get("external_type"),
-                        "region": decoded_token.get("lock_region"),
-                        "status": "success",
-                        "token": token_value
-                    }
-                    return jsonify(result), 200
-        except requests.RequestException:
-            continue  
+    except Exception:
+        return None
 
-    return jsonify({"message": "No valid platform found"}), 400
+@app.route('/access-jwt', methods=['GET'])
+def majorlogin_jwt():
+    """Generate JWT token using access token"""
+    access_token = request.args.get('access_token')
+    provided_open_id = request.args.get('open_id')
+
+    if not access_token:
+        return jsonify({"message": "missing access_token"}), 400
+
+    open_id = provided_open_id
+    if not open_id:
+        open_id, error = fetch_open_id(access_token)
+        if error:
+            return jsonify({"message": error}), 400
+
+    # Try different platforms
+    platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+    for platform_type in platforms:
+        result = try_platform_login(open_id, access_token, platform_type)
+        if result:
+            return jsonify(result), 200
+
+    return jsonify({"message": "No valid platform found for login"}), 400
 
 @app.route('/token', methods=['GET'])
 def oauth_guest():
+    """Get token using UID and password"""
     uid = request.args.get('uid')
     password = request.args.get('password')
+    
     if not uid or not password:
         return jsonify({"message": "Missing uid or password"}), 400
 
@@ -198,6 +219,7 @@ def oauth_guest():
         'client_secret': "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3",
         'client_id': "100067"
     }
+    
     headers = {
         'User-Agent': "GarenaMSDK/4.0.19P9(SM-M526B ;Android 13;pt;BR;)",
         'Connection': "Keep-Alive",
@@ -205,39 +227,50 @@ def oauth_guest():
     }
 
     try:
-        oauth_response = requests.post(oauth_url, data=payload, headers=headers, timeout=5)
-    except requests.RequestException as e:
-        return jsonify({"message": str(e)}), 500
-
-    if oauth_response.status_code != 200:
-        try:
-            return jsonify(oauth_response.json()), oauth_response.status_code
-        except ValueError:
-            return jsonify({"message": oauth_response.text}), oauth_response.status_code
-
-    try:
+        oauth_response = requests.post(oauth_url, data=payload, headers=headers, timeout=10)
+        oauth_response.raise_for_status()
+        
         oauth_data = oauth_response.json()
+        
+        if 'access_token' not in oauth_data or 'open_id' not in oauth_data:
+            return jsonify({"message": "OAuth response missing access_token or open_id"}), 500
+
+        # Use the obtained access_token and open_id to generate JWT
+        access_token = oauth_data['access_token']
+        open_id = oauth_data['open_id']
+        
+        # Try platforms with the obtained credentials
+        platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        
+        for platform_type in platforms:
+            result = try_platform_login(open_id, access_token, platform_type)
+            if result:
+                return jsonify(result), 200
+        
+        return jsonify({"message": "Login successful but JWT generation failed"}), 400
+
+    except requests.RequestException as e:
+        return jsonify({"message": f"OAuth request failed: {str(e)}"}), 500
     except ValueError:
         return jsonify({"message": "Invalid JSON response from OAuth service"}), 500
 
-    if 'access_token' not in oauth_data or 'open_id' not in oauth_data:
-        return jsonify({"message": "OAuth response missing access_token or open_id"}), 500
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "service": "JWT-API"}), 200
 
-    params = {
-        'access_token': oauth_data['access_token'],
-        'open_id': oauth_data['open_id']
-    }
-    
-    with app.test_request_context('/api/token', query_string=params):
-        return majorlogin_jwt()
-
-import sys
+async def startup():
+    """Startup tasks"""
+    print("[✓] Service initialized successfully")
 
 if __name__ == '__main__':
+    import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting {__name__.upper()} on port {port} ...")
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+    
     try:
         asyncio.run(startup())
     except Exception as e:
         print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
     app.run(host='0.0.0.0', port=port, debug=False)
