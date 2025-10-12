@@ -168,7 +168,7 @@ def format_response(data):
 
 # === Fetch Region from External API ===
 async def fetch_region_from_uid(uid: str) -> str:
-    url = f"https://nr-codex-apis.onrender.com/REGION-API/check?uid={uid}"
+    url = f"https://nr-codex-apis.onrender.com/BAN-CHECK-API/check?uid={uid}"
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, timeout=10)
         data = resp.json()
