@@ -36,7 +36,7 @@ def check_banned():
             ban_data = {"error": "Failed to fetch ban data from Garena server"}
 
         # Step 2: Fetch nickname, region, and level from the new REGIONAPI
-        region_api_url = f"http://127.0.0.1:8000/REGIONAPI/check?uid={player_id}"
+        region_api_url = f"https://nr-codex-apis.onrender.com/REGION-API/check?uid={player_id}"
         region_response = requests.get(region_api_url)
         region_data = {}
         if region_response.status_code == 200:
