@@ -1,0 +1,4 @@
+flask
+aiohttp
+protobuf
+pycryptodome
