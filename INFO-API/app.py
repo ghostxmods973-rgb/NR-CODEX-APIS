@@ -240,9 +240,13 @@ def refresh_tokens_endpoint():
 async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
+    import sys
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    # Run the startup coroutine to initialize tokens
-    asyncio.run(startup())
-    app.run(host='127.0.0.1', port=port, debug=False)
+    print(f"[🚀] Starting {__name__.upper()} on port {port} ...")
+    try:
+        asyncio.run(startup())
+    except Exception as e:
+        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    app.run(host='0.0.0.0', port=port, debug=False)
