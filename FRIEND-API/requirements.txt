@@ -1,0 +1,8 @@
+Flask==2.3.3
+requests==2.31.0
+pycryptodome==3.19.0
+protobuf==4.25.1
+PyJWT==2.8.0
+binascii==0.1.2
+asyncio==3.4.3
+datetime==4.7
