@@ -9,3 +9,6 @@ flask_cors
 cachetools
 PyJWT
 pillow
+binascii==0.1.2
+asyncio==3.4.3
+datetime==4.7
