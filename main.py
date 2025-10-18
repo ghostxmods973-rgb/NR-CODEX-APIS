@@ -66,7 +66,7 @@ def proxy_request(folder):
             data=request.get_data(),
             cookies=request.cookies,
             allow_redirects=False,
-            timeout=30
+            timeout=120
         )
         excluded = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
         headers = [(name, value) for (name, value) in resp.raw.headers.items()
