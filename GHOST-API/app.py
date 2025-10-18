@@ -668,31 +668,54 @@ def signal_handler(sig, frame):
     cleanup()
     sys.exit(0)
 
-if __name__ == "__main__":
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    atexit.register(cleanup)
+import sys
+import signal
+import atexit
+import threading
+import time
+import asyncio
 
+# --- assume these functions/classes already exist ---
+# from your_module import app, TcpBotConnectMain, load_accounts, cleanup, signal_handler
+
+clients = {}
+
+async def startup():
+    """Optional async startup logic (like preloading accounts)"""
     try:
         accounts = load_accounts('accounts.json')
         for account_id, password in accounts.items():
             client = TcpBotConnectMain(account_id, password)
             clients[account_id] = client
-            client_thread = threading.Thread(target=client.run)
-            client_thread.daemon = True
+            client_thread = threading.Thread(target=client.run, daemon=True)
             client_thread.start()
-            time.sleep(3)
+            await asyncio.sleep(3)
+        print(f"[✅] Loaded {len(accounts)} accounts successfully.")
     except FileNotFoundError:
-        print("No accounts file found. Starting without preloaded accounts.")
+        print("[⚠️] No accounts file found. Starting without preloaded accounts.")
+    except Exception as e:
+        print(f"[❌] Error loading accounts: {e}")
 
+# --- main entry ---
 if __name__ == '__main__':
     import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 15028
     print(f"[🚀] Starting JWT-API on port {port} ...")
-    
+
+    # Register signals and cleanup
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    atexit.register(cleanup)
+
     try:
         asyncio.run(startup())
     except Exception as e:
         print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
-    
-    app.run(host='0.0.0.0', port=port, debug=False)
+
+    try:
+        from flask import Flask
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except KeyboardInterrupt:
+        print("Server stopped by user")
+        cleanup()
