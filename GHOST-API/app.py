@@ -685,8 +685,14 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print("No accounts file found. Starting without preloaded accounts.")
 
+if __name__ == '__main__':
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+    
     try:
-        app.run(host='0.0.0.0', port=15028, debug=False)
-    except KeyboardInterrupt:
-        print("Server stopped by user")
-        cleanup()
+        asyncio.run(startup())
+    except Exception as e:
+        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
