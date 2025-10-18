@@ -9,3 +9,4 @@ flask-cors
 cachetools
 PyJWT
 Pillow
+psutil
