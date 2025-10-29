@@ -162,7 +162,7 @@ def try_platform_login(open_id, access_token, platform_type):
             "Expect": "100-continue",
             "X-Unity-Version": "2018.4.11f1",
             "X-GA": "v1 1",
-            "ReleaseVersion": "OB50"
+            "ReleaseVersion": "OB51"
         }
         
         edata = bytes.fromhex(hex_encrypted_data)
@@ -236,7 +236,7 @@ def get_player_info(target_uid, token, server_name=None):
             'Expect': "100-continue",
             'X-Unity-Version': "2018.4.11f1",
             'X-GA': "v1 1",
-            'ReleaseVersion': "OB50"
+            'ReleaseVersion': "OB51"
         }
 
         response = requests.post(endpoint, data=bytes.fromhex(encrypted_data), headers=headers, verify=False)
@@ -348,7 +348,7 @@ def remove_friend(author_uid, target_uid, token, server_name=None):
             'Content-Type': "application/x-www-form-urlencoded",
             'X-Unity-Version': "2018.4.11f1",
             'X-GA': "v1 1",
-            'ReleaseVersion': "OB50"
+            'ReleaseVersion': "OB51"
         }
 
         res = requests.post(url, data=encrypted_bytes, headers=headers)
@@ -404,7 +404,7 @@ def send_friend_request(author_uid, target_uid, token, server_name=None):
             "Authorization": f"Bearer {token}",
             "X-Unity-Version": "2018.4.11f1",
             "X-GA": "v1 1",
-            "ReleaseVersion": "OB50",
+            "ReleaseVersion": "OB51",
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "Dalvik/2.1.0 (Linux; Android 9)"
         }
