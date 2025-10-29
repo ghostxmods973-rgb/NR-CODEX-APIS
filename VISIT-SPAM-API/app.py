@@ -84,7 +84,7 @@ def parse_protobuf_response(response_data):
 # Visit functionality (async)
 async def visit(session, url, token, uid, data):
     headers = {
-        "ReleaseVersion": "OB50",
+        "ReleaseVersion": "OB51",
         "X-GA": "v1 1",
         "Authorization": f"Bearer {token}",
         "Host": url.replace("https://", "").split("/")[0]
@@ -148,7 +148,7 @@ def send_friend_request(uid, token, server_name, results):
             "Authorization": f"Bearer {token}",
             "X-Unity-Version": "2018.4.11f1",
             "X-GA": "v1 1",
-            "ReleaseVersion": "OB50",
+            "ReleaseVersion": "OB51",
             "Content-Type": "application/x-www-form-urlencoded",
             "Content-Length": "16",
             "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; SM-N975F Build/PI)",
@@ -181,7 +181,7 @@ def get_player_info(uid, server_name):
         data = bytes.fromhex(encrypted)
         
         headers = {
-            "ReleaseVersion": "OB50",
+            "ReleaseVersion": "OB51",
             "X-GA": "v1 1",
             "Authorization": f"Bearer {token}",
             "Host": url.replace("https://", "").split("/")[0]
