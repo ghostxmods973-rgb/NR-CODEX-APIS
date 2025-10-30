@@ -130,7 +130,7 @@ def try_platform_login(open_id, access_token, platform_type):
             "Expect": "100-continue",
             "X-Unity-Version": "2018.4.11f1",
             "X-GA": "v1 1",
-            "ReleaseVersion": "OB51"
+            "ReleaseVersion": "OB50"
         }
         
         edata = bytes.fromhex(hex_encrypted_data)
