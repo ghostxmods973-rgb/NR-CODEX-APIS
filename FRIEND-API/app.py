@@ -12,6 +12,16 @@ import my_pb2
 import output_pb2
 from datetime import datetime
 import json
+import time
+import urllib3
+import warnings
+
+# -----------------------------
+# Security Warnings Disable
+# -----------------------------
+# HTTPS warnings disable karo
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=UserWarning, message="Unverified HTTPS request")
 
 app = Flask(__name__)
 
@@ -52,77 +62,92 @@ def get_server_from_token(token):
         return "IND"
 
 # -----------------------------
-# JWT Token Generation Functions
+# Retry Decorator - 10 baar try karega
 # -----------------------------
-def fetch_open_id(access_token):
-    """Fetch open_id using access token"""
+def retry_operation(max_retries=10, delay=1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    result = func(*args, **kwargs)
+                    if result and result.get('status') in ['success', 'failed']:
+                        return result
+                    # Agar result nahi aaya toh retry karo
+                    print(f"Attempt {attempt + 1}/{max_retries} failed, retrying...")
+                except Exception as e:
+                    last_exception = e
+                    print(f"Attempt {attempt + 1}/{max_retries} failed with error: {str(e)}")
+                
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+            
+            # Agar 10 baar mein bhi fail hua toh last error return karo
+            if last_exception:
+                return {
+                    "status": "error",
+                    "message": f"All {max_retries} attempts failed",
+                    "error": str(last_exception)
+                }
+            return {
+                "status": "error", 
+                "message": f"All {max_retries} attempts failed"
+            }
+        return wrapper
+    return decorator
+
+# -----------------------------
+# JWT Token Generation Functions - FIXED
+# -----------------------------
+def get_token_from_uid_password(uid, password):
+    """Get JWT token using UID and password - FIXED VERSION"""
     try:
-        # First request to get UID
-        uid_url = "https://prod-api.reward.ff.garena.com/redemption/api/auth/inspect_token/"
-        uid_headers = {
-            "authority": "prod-api.reward.ff.garena.com",
-            "accept": "application/json, text/plain, */*",
-            "accept-encoding": "gzip, deflate, br",
-            "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "access-token": access_token,
-            "origin": "https://reward.ff.garena.com",
-            "referer": "https://reward.ff.garena.com/",
-            "sec-ch-ua": '"Not.A/Brand";v="99", "Chromium";v="124"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Android"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-site",
-            "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        }
-
-        uid_res = requests.get(uid_url, headers=uid_headers, timeout=10)
-        uid_res.raise_for_status()
-        uid_data = uid_res.json()
-        uid = uid_data.get("uid")
-
-        if not uid:
-            return None, "Failed to extract UID from access token"
-
-        # Second request to get open_id
-        openid_url = "https://shop2game.com/api/auth/player_id_login"
-        openid_headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "ar-MA,ar;q=0.9,en-US;q=0.8,en;q=0.7,ar-AE;q=0.6,fr-FR;q=0.5,fr;q=0.4",
-            "Connection": "keep-alive",
-            "Content-Type": "application/json",
-            "Origin": "https://shop2game.com",
-            "Referer": "https://shop2game.com/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36",
-            "sec-ch-ua-mobile": "?1",
-            "sec-ch-ua-platform": '"Android"'
+        oauth_url = "https://100067.connect.garena.com/oauth/guest/token/grant"
+        payload = {
+            'uid': uid,
+            'password': password,
+            'response_type': "token",
+            'client_type': "2",
+            'client_secret': "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3",
+            'client_id': "100067"
         }
         
-        payload = {
-            "app_id": 100067,
-            "login_id": str(uid)
+        headers = {
+            'User-Agent': "GarenaMSDK/4.0.19P9(SM-M526B ;Android 13;pt;BR;)",
+            'Connection': "Keep-Alive",
+            'Accept-Encoding': "gzip"
         }
 
-        openid_res = requests.post(openid_url, headers=openid_headers, json=payload, timeout=10)
-        openid_res.raise_for_status()
-        openid_data = openid_res.json()
-        open_id = openid_data.get("open_id")
+        oauth_response = requests.post(oauth_url, data=payload, headers=headers, timeout=10, verify=False)
+        oauth_response.raise_for_status()
+        
+        oauth_data = oauth_response.json()
+        
+        if 'access_token' not in oauth_data:
+            return None, "OAuth response missing access_token"
 
-        if not open_id:
-            return None, "Failed to extract open_id from UID"
-
-        return open_id, None
+        access_token = oauth_data['access_token']
+        open_id = oauth_data.get('open_id', '')
+        
+        # Try platforms with the obtained credentials
+        platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        
+        for platform_type in platforms:
+            result = try_platform_login(open_id, access_token, platform_type)
+            if result and 'token' in result:
+                return result['token'], None
+        
+        return None, "Login successful but JWT generation failed on all platforms"
 
     except requests.RequestException as e:
-        return None, f"Network error: {str(e)}"
+        return None, f"OAuth request failed: {str(e)}"
+    except ValueError:
+        return None, "Invalid JSON response from OAuth service"
     except Exception as e:
         return None, f"Unexpected error: {str(e)}"
 
 def try_platform_login(open_id, access_token, platform_type):
-    """Try login for a specific platform"""
+    """Try login for a specific platform - IMPROVED VERSION"""
     try:
         game_data = my_pb2.GameData()
         game_data.timestamp = "2024-12-05 18:15:32"
@@ -167,7 +192,7 @@ def try_platform_login(open_id, access_token, platform_type):
         
         edata = bytes.fromhex(hex_encrypted_data)
 
-        response = requests.post(url, data=edata, headers=headers, timeout=10)
+        response = requests.post(url, data=edata, headers=headers, timeout=10, verify=False)
         response.raise_for_status()
 
         if response.status_code == 200:
@@ -179,7 +204,7 @@ def try_platform_login(open_id, access_token, platform_type):
                 data_dict = {field.name: getattr(example_msg, field.name)
                              for field in example_msg.DESCRIPTOR.fields
                              if field.name not in ["binary", "binary_data", "Garena420"]}
-            except Exception:
+            except Exception as e:
                 try:
                     data_dict = response.json()
                 except ValueError:
@@ -273,51 +298,6 @@ def extract_player_info(info_data):
 # -----------------------------
 # Authentication Helper Functions
 # -----------------------------
-def get_token_from_uid_password(uid, password):
-    """Get JWT token using UID and password"""
-    try:
-        oauth_url = "https://100067.connect.garena.com/oauth/guest/token/grant"
-        payload = {
-            'uid': uid,
-            'password': password,
-            'response_type': "token",
-            'client_type': "2",
-            'client_secret': "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3",
-            'client_id': "100067"
-        }
-        
-        headers = {
-            'User-Agent': "GarenaMSDK/4.0.19P9(SM-M526B ;Android 13;pt;BR;)",
-            'Connection': "Keep-Alive",
-            'Accept-Encoding': "gzip"
-        }
-
-        oauth_response = requests.post(oauth_url, data=payload, headers=headers, timeout=10)
-        oauth_response.raise_for_status()
-        
-        oauth_data = oauth_response.json()
-        
-        if 'access_token' not in oauth_data or 'open_id' not in oauth_data:
-            return None, "OAuth response missing access_token or open_id"
-
-        access_token = oauth_data['access_token']
-        open_id = oauth_data['open_id']
-        
-        # Try platforms with the obtained credentials
-        platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-        
-        for platform_type in platforms:
-            result = try_platform_login(open_id, access_token, platform_type)
-            if result:
-                return result['token'], None
-        
-        return None, "Login successful but JWT generation failed"
-
-    except requests.RequestException as e:
-        return None, f"OAuth request failed: {str(e)}"
-    except ValueError:
-        return None, "Invalid JSON response from OAuth service"
-
 def decode_author_uid(token):
     try:
         decoded = jwt.decode(token, options={"verify_signature": False})
@@ -326,9 +306,11 @@ def decode_author_uid(token):
         return None
 
 # -----------------------------
-# Friend Management Functions
+# Friend Management Functions - WITH RETRY
 # -----------------------------
-def remove_friend(author_uid, target_uid, token, server_name=None):
+@retry_operation(max_retries=10, delay=1)
+def remove_friend_with_retry(author_uid, target_uid, token, server_name=None):
+    """Remove friend with retry mechanism"""
     try:
         if not server_name:
             server_name = get_server_from_token(token)
@@ -351,12 +333,20 @@ def remove_friend(author_uid, target_uid, token, server_name=None):
             'ReleaseVersion': "OB51"
         }
 
-        res = requests.post(url, data=encrypted_bytes, headers=headers)
+        res = requests.post(url, data=encrypted_bytes, headers=headers, verify=False)
         
         # Extract player info
         player_data = None
         if player_info:
             player_data = extract_player_info(player_info)
+        
+        # Check if successful
+        if res.status_code == 200:
+            status = "success"
+        else:
+            status = "failed"
+            # Force retry by raising exception
+            raise Exception(f"HTTP {res.status_code}: {res.text}")
         
         # Simplified response format
         response_data = {
@@ -367,27 +357,19 @@ def remove_friend(author_uid, target_uid, token, server_name=None):
             "likes": player_data.get('likes') if player_data else 0,
             "region": player_data.get('region') if player_data else "Unknown",
             "release_version": player_data.get('release_version') if player_data else "Unknown",
-            "status": "success" if res.status_code == 200 else "failed",
+            "status": status,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         return response_data
 
     except Exception as e:
-        return {
-            "author_uid": author_uid,
-            "nickname": "Unknown",
-            "uid": target_uid,
-            "level": 0,
-            "likes": 0,
-            "region": "Unknown",
-            "release_version": "Unknown",
-            "status": "error",
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "error": str(e)
-        }
+        print(f"Remove friend error: {e}")
+        raise e  # Retry ke liye exception raise karo
 
-def send_friend_request(author_uid, target_uid, token, server_name=None):
+@retry_operation(max_retries=10, delay=1)
+def send_friend_request_with_retry(author_uid, target_uid, token, server_name=None):
+    """Send friend request with retry mechanism"""
     try:
         if not server_name:
             server_name = get_server_from_token(token)
@@ -409,12 +391,20 @@ def send_friend_request(author_uid, target_uid, token, server_name=None):
             "User-Agent": "Dalvik/2.1.0 (Linux; Android 9)"
         }
 
-        r = requests.post(url, headers=headers, data=bytes.fromhex(encrypted_payload))
+        r = requests.post(url, headers=headers, data=bytes.fromhex(encrypted_payload), verify=False)
         
         # Extract player info
         player_data = None
         if player_info:
             player_data = extract_player_info(player_info)
+        
+        # Check if successful
+        if r.status_code == 200:
+            status = "success"
+        else:
+            status = "failed"
+            # Force retry by raising exception
+            raise Exception(f"HTTP {r.status_code}: {r.text}")
         
         # Simplified response format
         response_data = {
@@ -425,75 +415,74 @@ def send_friend_request(author_uid, target_uid, token, server_name=None):
             "likes": player_data.get('likes') if player_data else 0,
             "region": player_data.get('region') if player_data else "Unknown",
             "release_version": player_data.get('release_version') if player_data else "Unknown",
-            "status": "success" if r.status_code == 200 else "failed",
+            "status": status,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         return response_data
         
     except Exception as e:
-        return {
-            "author_uid": author_uid,
-            "nickname": "Unknown",
-            "uid": target_uid,
-            "level": 0,
-            "likes": 0,
-            "region": "Unknown",
-            "release_version": "Unknown",
-            "status": "error",
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "error": str(e)
-        }
+        print(f"Add friend error: {e}")
+        raise e  # Retry ke liye exception raise karo
 
 # -----------------------------
-# API Routes
+# API Routes - WITH RETRY
 # -----------------------------
-@app.route('/add_friend', methods=['GET'])
-def add_friend_api():
-    """Add friend using either token or UID/password"""
-    token = request.args.get('token')
-    player_id = request.args.get('player_id')
-    uid = request.args.get('uid')
-    password = request.args.get('password')
-    server_name = request.args.get('server_name')
-
-    # Validate input
-    if not player_id:
-        return jsonify({
-            "status": "failed",
-            "message": "Missing 'player_id'"
-        }), 400
-
-    # Get token from either direct token or UID/password
-    if token:
-        # Use provided token directly
-        author_uid = decode_author_uid(token)
-        if not author_uid:
-            return jsonify({
-                "status": "failed", 
-                "message": "Invalid token"
-            }), 400
-    elif uid and password:
-        # Generate token from UID/password
-        token, error = get_token_from_uid_password(uid, password)
-        if error:
-            return jsonify({
-                "status": "failed",
-                "message": error
-            }), 400
-        author_uid = decode_author_uid(token)
-    else:
-        return jsonify({
-            "status": "failed",
-            "message": "Either 'token' or 'uid' and 'password' must be provided"
-        }), 400
-
-    result = send_friend_request(author_uid, player_id, token, server_name)
-    return jsonify(result)
-
 @app.route('/remove_friend', methods=['GET'])
 def remove_friend_api():
-    """Remove friend using either token or UID/password"""
+    """Remove friend using either token or UID/password - WITH RETRY"""
+    token = request.args.get('token')
+    player_id = request.args.get('player_id')
+    uid = request.args.get('uid')
+    password = request.args.get('password')
+    server_name = request.args.get('server_name')
+
+    # Validate input
+    if not player_id:
+        return jsonify({
+            "status": "failed",
+            "message": "Missing 'player_id'"
+        }), 400
+
+    # Get token from either direct token or UID/password
+    if token:
+        # Use provided token directly
+        author_uid = decode_author_uid(token)
+        if not author_uid:
+            return jsonify({
+                "status": "failed", 
+                "message": "Invalid token"
+            }), 400
+    elif uid and password:
+        # Generate token from UID/password - FIXED
+        print(f"Attempting to generate token for UID: {uid}")
+        token, error = get_token_from_uid_password(uid, password)
+        if error:
+            print(f"Token generation failed: {error}")
+            return jsonify({
+                "status": "failed",
+                "message": error
+            }), 400
+        print(f"Token generated successfully")
+        author_uid = decode_author_uid(token)
+        if not author_uid:
+            return jsonify({
+                "status": "failed", 
+                "message": "Generated token is invalid"
+            }), 400
+    else:
+        return jsonify({
+            "status": "failed",
+            "message": "Either 'token' or 'uid' and 'password' must be provided"
+        }), 400
+
+    # Retry mechanism ke saath remove friend call karo
+    result = remove_friend_with_retry(author_uid, player_id, token, server_name)
+    return jsonify(result)
+
+@app.route('/add_friend', methods=['GET'])
+def add_friend_api():
+    """Add friend using either token or UID/password - WITH RETRY"""
     token = request.args.get('token')
     player_id = request.args.get('player_id')
     uid = request.args.get('uid')
@@ -531,7 +520,8 @@ def remove_friend_api():
             "message": "Either 'token' or 'uid' and 'password' must be provided"
         }), 400
 
-    result = remove_friend(author_uid, player_id, token, server_name)
+    # Retry mechanism ke saath add friend call karo
+    result = send_friend_request_with_retry(author_uid, player_id, token, server_name)
     return jsonify(result)
 
 @app.route('/get_player_info', methods=['GET'])
@@ -574,32 +564,9 @@ def get_player_info_api():
 # -----------------------------
 # JWT Generation Routes (Optional)
 # -----------------------------
-@app.route('/access-jwt', methods=['GET'])
-def majorlogin_jwt():
-    """Generate JWT token using access token"""
-    access_token = request.args.get('access_token')
-    provided_open_id = request.args.get('open_id')
-
-    if not access_token:
-        return jsonify({"message": "missing access_token"}), 400
-
-    open_id = provided_open_id
-    if not open_id:
-        open_id, error = fetch_open_id(access_token)
-        if error:
-            return jsonify({"message": error}), 400
-
-    platforms = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    for platform_type in platforms:
-        result = try_platform_login(open_id, access_token, platform_type)
-        if result:
-            return jsonify(result), 200
-
-    return jsonify({"message": "No valid platform found for login"}), 400
-
 @app.route('/token', methods=['GET'])
 def oauth_guest():
-    """Get token using UID and password"""
+    """Get token using UID and password - FIXED"""
     uid = request.args.get('uid')
     password = request.args.get('password')
     
@@ -610,10 +577,16 @@ def oauth_guest():
     if error:
         return jsonify({"message": error}), 400
         
+    # Verify the token is valid
+    author_uid = decode_author_uid(token)
+    if not author_uid:
+        return jsonify({"message": "Generated token is invalid"}), 400
+        
     return jsonify({
         "status": "success",
         "token": token,
-        "uid": uid
+        "uid": uid,
+        "author_uid": author_uid
     })
 
 @app.route('/health', methods=['GET'])
@@ -623,15 +596,5 @@ def health_check():
 # -----------------------------
 # Run Server
 # -----------------------------
-
 if __name__ == '__main__':
-    import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting JWT-API on port {port} ...")
-    
-    try:
-        asyncio.run(startup())
-    except Exception as e:
-        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
-    
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(debug=True, host='0.0.0.0', port=5000)
