@@ -82,6 +82,26 @@ def get_item_image():
     # If no image found in any repository    
     abort(404, description="Item image not found")
 
+@app.route('/iteminfo', methods=['GET'])
+def get_item_info():
+    """Fetch item details from main.json using ?id= query."""
+    item_id = request.args.get('id', type=int)
+
+    if item_id is None:
+        return jsonify({"error": "Missing required parameter: id"}), 400
+
+    if item_data is None:
+        return jsonify({"error": "Item data not loaded. Check server logs."}), 500
+
+    # Find item by Id in loaded data
+    item = next((item for item in item_data if item.get("Id") == item_id), None)
+
+    if not item:
+        return jsonify({"error": f"Item with ID {item_id} not found."}), 404
+
+    # Return full item info as JSON
+    return jsonify(item), 200
+
 @app.route('/main/ICON/<int:itemid>.png', methods=['GET'])
 def get_combined_item_image(itemid):
     """Composite image API - returns PNG with background based on rarity"""
