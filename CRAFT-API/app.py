@@ -266,13 +266,14 @@ def convert_timestamp(timestamp):
         return "Invalid timestamp"
 
 if __name__ == '__main__':
-    print("\n" + "="*60)
-    print("FREE FIRE MAP SHARE API IS RUNNING")
-    print("="*60)
-    print("Endpoints:")
-    print("GET /info?map_code=23FREEFIRE435DE8FA485D44460958106964C620FC4781&region=ind")
-    print("GET /map_details?map_code=23FREEFIRE435DE8FA485D44460958106964C620FC4781&region=ind")
-    print("GET /health")
-    print("="*60 + "\n")
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
     
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        asyncio.run(startup())
+    except Exception as e:
+        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
+    
