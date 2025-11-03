@@ -225,19 +225,14 @@ def start_background_loop():
     loop.run_forever()
 
 if __name__ == '__main__':
-    # Start JWT token updater in background
-    threading.Thread(target=start_background_loop, daemon=True).start()
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
     
-    # Wait a bit for first tokens
-    time.sleep(5)
-
-    print("\n" + "="*60)
-    print("FREE FIRE CLAN INFO API IS RUNNING")
-    print("="*60)
-    print("Supported Regions: IND, BD, BR, US, SAC, NA")
-    print("URL: http://127.0.0.1:5000/get_clan_info?clan_id=3034881538&region=IND")
-    print("Health Check: http://127.0.0.1:5000/health")
-    print("For LAN: http://YOUR_LAN_IP:5000/get_clan_info?clan_id=3034881538&region=IND")
-    print("="*60 + "\n")
-
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    try:
+        asyncio.run(startup())
+    except Exception as e:
+        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
+    
