@@ -329,13 +329,14 @@ def home():
     </html>
     """
 
-import sys
-
 if __name__ == '__main__':
+    import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting {__name__.upper()} on port {port} ...")
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+    
     try:
         asyncio.run(startup())
     except Exception as e:
         print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
     app.run(host='0.0.0.0', port=port, debug=False)
