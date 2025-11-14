@@ -1,4 +1,5 @@
-Flask==2.3.2
+Flask==2.3.3
 requests==2.31.0
-protobuf==4.25.1
 pycryptodome==3.20.0
+protobuf==4.25.3
+google-protobuf==4.25.3
