@@ -1,10 +1,7 @@
 # ------------------------------------------------------------
-# Instagram Info API — Credit: Anmol (@FOREVER_HIDDEN)
-# JOIN    : @SOURCE_SUTRA  FOR MORE SRC | API | BOT CODE | METHOD | 🛐
-# Purpose : Fetch profile & recent media (public + optional session-based)
-# Note    : THIS CODE MADE BY ANMOL @FOREVER_HIDDEN (GIVE CREDIT OTHERWISE EVERYONE FUCK YOU AT 300 KM SPEED)
-# Usage   : /api/insta/<username>?
-# License : Personal / internal use only — retain credit when sharing
+# Instagram Info API — FIXED 2025 VERSION
+# Author: Anmol (@FOREVER_HIDDEN)
+# JOIN: @SOURCE_SUTRA for API | SRC | BOT | METHODS
 # ------------------------------------------------------------
 
 from flask import Flask, jsonify, request
@@ -14,127 +11,103 @@ from functools import lru_cache
 
 app = Flask(__name__)
 
-# DONT REMOVE THIS BRUH
+# Working IG Endpoint (Public Snapshot JSON)
+INSTAGRAM_SNAPSHOT = "https://www.instagram.com/{}/?__a=1&__d=dis"
+
+# CACHE for speed
 @lru_cache(maxsize=1024)
-def fetch_instagram_profile(username, proxy=None):
-    url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+def fetch_profile(username, proxy=None):
+    url = INSTAGRAM_SNAPSHOT.format(username)
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "x-ig-app-id": "936619743392459",
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 11; RMX) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Mobile Safari/537.36"
+        ),
+        "Accept": "application/json",
         "Referer": f"https://www.instagram.com/{username}/",
     }
-    session = requests.Session()
+
     proxies = {"http": proxy, "https": proxy} if proxy else None
-
-    backoff = 1
-    for attempt in range(4):
+    
+    for _ in range(3):
         try:
-            resp = session.get(url, headers=headers, timeout=10, proxies=proxies)
-            if resp.status_code == 200:
-                return resp.json()
-            elif resp.status_code in (429, 403):
-                # rate limited or blocked
-                time.sleep(backoff)
-                backoff *= 2
-            elif resp.status_code == 404:
-                return {"error": "not_found", "status_code": 404}
-            else:
-                return {
-                    "error": "http_error",
-                    "status_code": resp.status_code,
-                    "body": resp.text[:500],
-                }
-        except requests.RequestException:
-            time.sleep(backoff)
-            backoff *= 2
-    return {"error": "request_failed"}
+            r = requests.get(url, headers=headers, proxies=proxies, timeout=10)
+            
+            # IG new behavior: 200 but JSON is hidden inside text
+            if r.status_code == 200:
+                try:
+                    return r.json()
+                except:
+                    # try to extract JSON manually
+                    if "graphql" in r.text:
+                        start = r.text.find("{")
+                        end = r.text.rfind("}") + 1
+                        raw = r.text[start:end]
+                        import json
+                        return json.loads(raw)
+            
+            if r.status_code in (401, 429, 403):
+                time.sleep(1)
+                continue
+            
+            if r.status_code == 404:
+                return {"error": "not_found"}
 
+        except Exception:
+            time.sleep(1)
 
-@app.route("/api/insta/<username>", methods=["GET"])
-def insta_info(username):
-    proxy = request.args.get("proxy")  # optional proxy
-    data = fetch_instagram_profile(username, proxy=proxy)
-    if data is None:
-        return jsonify({"error": "no_response"}), 502
+    return {"error": "failed"}
+
+@app.route("/api/insta/<username>")
+def insta(username):
+    proxy = request.args.get("proxy")
+    data = fetch_profile(username, proxy)
 
     if "error" in data:
-        return jsonify(data), (data.get("status_code") or 400)
+        return jsonify(data)
 
     try:
-        user = data.get("data", {}).get("user") or data.get("user") or data.get("data")
-        if not user:
-            return jsonify({"raw": data})
+        g = data.get("graphql", {}).get("user")
+        if not g:
+            return jsonify({"error": "parse_failed", "raw": data})
 
         out = {
-            "id": user.get("id"),
-            "username": user.get("username"),
-            "full_name": user.get("full_name"),
-            "biography": user.get("biography"),
-            "is_private": user.get("is_private"),
-            "is_verified": user.get("is_verified"),
-            "profile_pic_url": user.get("profile_pic_url_hd")
-                              or user.get("profile_pic_url"),
-            "followers_count": (
-                user.get("edge_followed_by", {}).get("count")
-                or user.get("followers_count")
-            ),
-            "following_count": (
-                user.get("edge_follow", {}).get("count")
-                or user.get("following_count")
-            ),
-            "media_count": (
-                user.get("media_count")
-                or user.get("edge_owner_to_timeline_media", {}).get("count")
-            ),
-            "recent_media": [],
+            "id": g.get("id"),
+            "username": g.get("username"),
+            "full_name": g.get("full_name"),
+            "biography": g.get("biography"),
+            "is_private": g.get("is_private"),
+            "is_verified": g.get("is_verified"),
+            "profile_pic_url": g.get("profile_pic_url_hd") or g.get("profile_pic_url"),
+            "followers_count": g.get("edge_followed_by", {}).get("count"),
+            "following_count": g.get("edge_follow", {}).get("count"),
+            "media_count": g.get("edge_owner_to_timeline_media", {}).get("count"),
+            "recent_media": []
         }
 
-        media = (
-            user.get("edge_owner_to_timeline_media")
-            or user.get("media")
-            or {}
-        )
-        edges = media.get("edges") or media.get("items") or []
+        edges = g.get("edge_owner_to_timeline_media", {}).get("edges", [])
         for e in edges[:8]:
-            node = e.get("node") if isinstance(e, dict) and e.get("node") else e
-            if not node:
-                continue
+            node = e.get("node", {})
+
             caption = None
-            if node.get("edge_media_to_caption"):
-                edges_caption = node["edge_media_to_caption"].get("edges") or []
-                if edges_caption and "node" in edges_caption[0]:
-                    caption = edges_caption[0]["node"].get("text")
-            else:
-                caption = node.get("caption")
+            cap = node.get("edge_media_to_caption", {}).get("edges", [])
+            if cap:
+                caption = cap[0]["node"].get("text")
 
             out["recent_media"].append({
                 "id": node.get("id"),
                 "shortcode": node.get("shortcode"),
-                "display_url": node.get("display_url")
-                               or node.get("display_src"),
-                "taken_at": node.get("taken_at_timestamp")
-                             or node.get("taken_at"),
-                "caption": caption,
+                "display_url": node.get("display_url"),
+                "taken_at": node.get("taken_at_timestamp"),
+                "caption": caption
             })
-        return jsonify(out)
-    except Exception as exc:
-        return jsonify({
-            "error": "parse_error",
-            "details": str(exc),
-            "raw": data
-        }), 500
 
-if __name__ == '__main__':
-    import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting JWT-API on port {port} ...")
-    
-    try:
-        asyncio.run(startup())
-    except Exception as e:
-        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
-    
-    app.run(host='0.0.0.0', port=port, debug=False)
-    
+        return jsonify(out)
+
+    except Exception as exc:
+        return jsonify({"error": "parse_error", "details": str(exc), "raw": data})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
