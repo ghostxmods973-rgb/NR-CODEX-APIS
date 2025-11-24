@@ -9,3 +9,7 @@ flask_cors
 cachetools
 PyJWT
 pillow
+undetected-chromedriver==3.5.5
+selenium==4.25.0
+fake-useragent==1.5.1
+cloudscraper==1.2.71
