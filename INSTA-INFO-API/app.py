@@ -1,24 +1,22 @@
 # ------------------------------------------------------------
-# Instagram Info API — FIXED 2025 VERSION
+# Instagram Info API — FIXED & CLEAN 2025 VERSION
 # Author: Anmol (@FOREVER_HIDDEN)
-# JOIN: @SOURCE_SUTRA for API | SRC | BOT | METHODS
 # ------------------------------------------------------------
 
 from flask import Flask, jsonify, request
 import requests
 import time
 from functools import lru_cache
+import json
 
 app = Flask(__name__)
 
-# Working IG Endpoint (Public Snapshot JSON)
 INSTAGRAM_SNAPSHOT = "https://www.instagram.com/{}/?__a=1&__d=dis"
 
-# CACHE for speed
 @lru_cache(maxsize=1024)
 def fetch_profile(username, proxy=None):
     url = INSTAGRAM_SNAPSHOT.format(username)
-    
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Linux; Android 11; RMX) "
@@ -30,28 +28,25 @@ def fetch_profile(username, proxy=None):
     }
 
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    
+
     for _ in range(3):
         try:
             r = requests.get(url, headers=headers, proxies=proxies, timeout=10)
-            
-            # IG new behavior: 200 but JSON is hidden inside text
+
             if r.status_code == 200:
                 try:
                     return r.json()
                 except:
-                    # try to extract JSON manually
                     if "graphql" in r.text:
                         start = r.text.find("{")
                         end = r.text.rfind("}") + 1
                         raw = r.text[start:end]
-                        import json
                         return json.loads(raw)
-            
+
             if r.status_code in (401, 429, 403):
                 time.sleep(1)
                 continue
-            
+
             if r.status_code == 404:
                 return {"error": "not_found"}
 
@@ -108,16 +103,12 @@ def insta(username):
 
     except Exception as exc:
         return jsonify({"error": "parse_error", "details": str(exc), "raw": data})
-# ===================== STARTUP / MAIN =====================
+
+
+# ------------------- START SERVER (NO ERROR NOW) -------------------
 if __name__ == '__main__':
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting JWT-API on port {port} ...")
+    print(f"[🚀] Starting INSTAGRAM API on port {port} ...")
 
-    # Start the background token updater thread
-    start_token_updater_thread()
-
-    # Start Flask
-    # Use 0.0.0.0 so container/remote can access if needed
     app.run(host='0.0.0.0', port=port, debug=False)
-
