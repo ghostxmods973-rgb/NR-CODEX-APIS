@@ -5,9 +5,20 @@ import re
 
 app = Flask(__name__)
 
-@app.route('/insta-info', methods=['GET'])
+def extract_number(text):
+    """Convert 1.2M → 1200000, 3.4K → 3400"""
+    if not text:
+        return None
+    text = text.replace(",", "")
+    if "M" in text:
+        return int(float(text.replace("M", "")) * 1_000_000)
+    if "K" in text:
+        return int(float(text.replace("K", "")) * 1_000)
+    return int(re.sub(r"\D", "", text))
+
+@app.route("/insta-info", methods=["GET"])
 def insta_info():
-    username = request.args.get('username')
+    username = request.args.get("username")
     if not username:
         return jsonify({"error": "Missing 'username' parameter"}), 400
 
@@ -18,55 +29,81 @@ def insta_info():
     }
 
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            return jsonify({"error": "Failed to fetch profile"}), 404
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return jsonify({"error": "Profile not found"}), 404
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(r.text, "html.parser")
 
-        # Get page title: usually like "Cristiano Ronaldo (@cristiano) • Instagram photos and videos"
-        title_tag = soup.find("title")
-        title = title_tag.text.strip() if title_tag else ""
+        # -------------------------
+        # TITLE
+        # -------------------------
+        title = soup.title.text.strip() if soup.title else ""
 
-        # Get meta description (has follower count, following, and bio preview)
+        # -------------------------
+        # META DESCRIPTION (followers/following)
+        # -------------------------
         desc = soup.find("meta", attrs={"name": "description"})
         desc_content = desc["content"] if desc else ""
 
-        # Parse followers/following from meta description
-        match = re.search(r'([\d.,]+)\sFollowers?,\s([\d.,]+)\sFollowing', desc_content)
-        followers = match.group(1) if match else None
-        following = match.group(2) if match else None
+        match = re.search(r'([\d.,KM]+)\sFollowers?,\s([\d.,KM]+)\sFollowing', desc_content)
+        followers = extract_number(match.group(1)) if match else None
+        following = extract_number(match.group(2)) if match else None
 
-        # Extract full bio (if available in description meta tag or visible in profile)
-        bio = None
-        bio_tag = soup.find("meta", attrs={"property": "og:description"})
-        if bio_tag:
-            bio = bio_tag["content"]
+        # -------------------------
+        # BIO
+        # -------------------------
+        bio_meta = soup.find("meta", property="og:description")
+        bio = bio_meta["content"] if bio_meta else None
+        if bio and "• Instagram photos" in bio:
+            bio = None  # remove Instagram auto text
 
-        # Extract total posts, reels, and links from page
-        posts_reels_links = re.search(r'"edge_owner_to_timeline_media":{"count":(\d+)},"edge_felix_video_media":{"count":(\d+)},"external_url":"([^"]+)"', response.text)
-        total_posts = posts_reels_links.group(1) if posts_reels_links else None
-        total_reels = posts_reels_links.group(2) if posts_reels_links else None
-        external_url = posts_reels_links.group(3) if posts_reels_links else None
+        # -------------------------
+        # POSTS / REELS / URL
+        # -------------------------
+        posts = re.search(r'"edge_owner_to_timeline_media":{"count":(\d+)}', r.text)
+        reels = re.search(r'"edge_felix_video_media":{"count":(\d+)}', r.text)
+        external = re.search(r'"external_url":"([^"]+)"', r.text)
 
-        # Extract profile picture
-        profile_pic = re.search(r'"profile_pic_url_hd":"([^"]+)"', response.text)
-        profile_pic_url = profile_pic.group(1).replace("\\u0026", "&") if profile_pic else None
+        total_posts = posts.group(1) if posts else None
+        total_reels = reels.group(1) if reels else None
+        external_url = external.group(1).replace("\\u0026", "&") if external else None
+
+        # -------------------------
+        # PROFILE PIC
+        # -------------------------
+        pfp = re.search(r'"profile_pic_url_hd":"([^"]+)"', r.text)
+        profile_pic = pfp.group(1).replace("\\u0026", "&") if pfp else None
 
         return jsonify({
+            "status": "success",
             "username": username,
             "title": title,
             "followers": followers,
             "following": following,
-            "bio": bio,
             "total_posts": total_posts,
             "total_reels": total_reels,
-            "profile_pic": profile_pic_url,
+            "bio": bio,
+            "profile_pic": profile_pic,
             "external_url": external_url
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Required for Vercel (entrypoint)
-handler = app
+
+# For Vercel (export as handler)
+handler =app
+# ===================== STARTUP / MAIN =====================
+if __name__ == '__main__':
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+
+    # Start the background token updater thread
+    start_token_updater_thread()
+
+    # Start Flask
+    # Use 0.0.0.0 so container/remote can access if needed
+    app.run(host='0.0.0.0', port=port, debug=False)
+    
