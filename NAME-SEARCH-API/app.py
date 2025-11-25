@@ -115,7 +115,15 @@ def search():
             return jsonify({"error": "No players found or request failed"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# ---------------------------------------------
+# ===================== STARTUP / MAIN =====================
 if __name__ == '__main__':
-    app.run(debug=True)
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+
+    # Start the background token updater thread
+    start_token_updater_thread()
+
+    # Start Flask
+    # Use 0.0.0.0 so container/remote can access if needed
+    app.run(host='0.0.0.0', port=port, debug=False)
