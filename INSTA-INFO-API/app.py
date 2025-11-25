@@ -1,63 +1,72 @@
-import httpx
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
+import requests
+from bs4 import BeautifulSoup
+import re
 
 app = Flask(__name__)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/118.0 Safari/537.36"
-}
+@app.route('/insta-info', methods=['GET'])
+def insta_info():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({"error": "Missing 'username' parameter"}), 400
 
-BASE1 = "https://www.instagram.com/api/v1/users/web_profile_info/?username="
-BASE2 = "https://i.instagram.com/api/v1/users/web_profile_info/?username="
-MEDIA_API = "https://www.instagram.com/graphql/query/?query_hash=e769aa130647d2354c40ea6a439bfc08&variables="
+    url = f"https://www.instagram.com/{username}/"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
 
-def get_profile(username):
-    urls = [BASE1 + username, BASE2 + username]
-    for u in urls:
-        try:
-            r = httpx.get(u, headers=HEADERS, timeout=10)
-            if r.status_code == 200:
-                return r.json()
-        except:
-            pass
-    return None
-
-def get_recent_posts(user_id):
-    payload = {"id": user_id, "first": 12}
-    url = MEDIA_API + httpx.QueryParams(payload).to_str()
     try:
-        r = httpx.get(url, headers=HEADERS, timeout=10)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        return None
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch profile"}), 404
 
-@app.route("/api/insta/<username>", methods=["GET"])
-def insta(username):
-    profile = get_profile(username)
-    if not profile:
-        return jsonify({"error": "profile_not_found"}), 404
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-    user = profile.get("data", {}).get("user", {})
-    if not user:
-        return jsonify({"error": "invalid_profile"}), 404
+        # Get page title: usually like "Cristiano Ronaldo (@cristiano) • Instagram photos and videos"
+        title_tag = soup.find("title")
+        title = title_tag.text.strip() if title_tag else ""
 
-    user_id = user.get("id")
-    posts = get_recent_posts(user_id)
+        # Get meta description (has follower count, following, and bio preview)
+        desc = soup.find("meta", attrs={"name": "description"})
+        desc_content = desc["content"] if desc else ""
 
-    return jsonify({
-        "status": "success",
-        "user_id": user_id,
-        "username": user.get("username"),
-        "full_name": user.get("full_name"),
-        "bio": user.get("biography"),
-        "is_private": user.get("is_private"),
-        "is_verified": user.get("is_verified"),
-        "followers": user.get("edge_followed_by", {}).get("count"),
-        "following": user.get("edge_follow", {}).get("count"),
-        "profile_pic": user.get("profile_pic_url_hd"),
-        "recent_posts": posts
-    })
+        # Parse followers/following from meta description
+        match = re.search(r'([\d.,]+)\sFollowers?,\s([\d.,]+)\sFollowing', desc_content)
+        followers = match.group(1) if match else None
+        following = match.group(2) if match else None
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+        # Extract full bio (if available in description meta tag or visible in profile)
+        bio = None
+        bio_tag = soup.find("meta", attrs={"property": "og:description"})
+        if bio_tag:
+            bio = bio_tag["content"]
+
+        # Extract total posts, reels, and links from page
+        posts_reels_links = re.search(r'"edge_owner_to_timeline_media":{"count":(\d+)},"edge_felix_video_media":{"count":(\d+)},"external_url":"([^"]+)"', response.text)
+        total_posts = posts_reels_links.group(1) if posts_reels_links else None
+        total_reels = posts_reels_links.group(2) if posts_reels_links else None
+        external_url = posts_reels_links.group(3) if posts_reels_links else None
+
+        # Extract profile picture
+        profile_pic = re.search(r'"profile_pic_url_hd":"([^"]+)"', response.text)
+        profile_pic_url = profile_pic.group(1).replace("\\u0026", "&") if profile_pic else None
+
+        return jsonify({
+            "username": username,
+            "title": title,
+            "followers": followers,
+            "following": following,
+            "bio": bio,
+            "total_posts": total_posts,
+            "total_reels": total_reels,
+            "profile_pic": profile_pic_url,
+            "external_url": external_url
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Required for Vercel (entrypoint)
+handler = app
