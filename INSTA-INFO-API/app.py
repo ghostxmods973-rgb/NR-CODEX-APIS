@@ -81,12 +81,14 @@ def insta_info():
         return jsonify({"error": str(e)}), 500
 
 
-# ==============================
-# RENDER / LOCAL ENTRYPOINT
-# ==============================
-app = app  # For Render deployment
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    print(f"🚀 Server running on port {port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+if __name__ == '__main__':
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"[🚀] Starting JWT-API on port {port} ...")
+    
+    try:
+        asyncio.run(startup())
+    except Exception as e:
+        print(f"[⚠️] Startup warning: {e} — continuing without full initialization")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
