@@ -2,103 +2,91 @@ import os
 import sys
 import subprocess
 
-# ==========================
-# AUTO INSTALL MISSING LIBS
-# ==========================
-required = [
-    "flask",
-    "requests",
-    "beautifulsoup4",
-    "lxml",
-]
+# ==============================
+# AUTO INSTALL MISSING PACKAGES
+# ==============================
+required = ["flask", "requests"]
 
-def install_missing():
+def auto_install():
     for pkg in required:
         try:
-            __import__(pkg.replace("-", "_"))
+            __import__(pkg)
         except ImportError:
             print(f"[AUTO-INSTALL] Installing {pkg} ...")
             subprocess.run([sys.executable, "-m", "pip", "install", pkg])
 
-install_missing()
+auto_install()
 
-# ==========================
-# ACTUAL APPLICATION STARTS
-# ==========================
+# ==============================
+#   MAIN APPLICATION
+# ==============================
 from flask import Flask, request, jsonify
 import requests
-from bs4 import BeautifulSoup
-import re
 
 app = Flask(__name__)
 
 
-def extract_number(text):
-    if not text:
+# Convert numbers to K/M (e.g. 274M)
+def format_num(n):
+    if n is None:
         return None
-    text = text.replace(",", "")
-    if "M" in text:
-        return int(float(text.replace("M", "")) * 1_000_000)
-    if "K" in text:
-        return int(float(text.replace("K", "")) * 1_000)
-    return int(re.sub(r"\D", "", text))
+    if n >= 1_000_000:
+        return f"{round(n / 1_000_000, 1)}M"
+    if n >= 1_000:
+        return f"{round(n / 1_000, 1)}K"
+    return str(n)
 
 
 @app.route("/insta-info", methods=["GET"])
 def insta_info():
     username = request.args.get("username")
     if not username:
-        return jsonify({"error": "Missing 'username'"}), 400
+        return jsonify({"error": "Missing username"}), 400
 
-    url = f"https://www.instagram.com/{username}/"
+    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+
     headers = {
         "User-Agent": "Mozilla/5.0",
-        "Accept-Language": "en-US,en;q=0.9"
+        "X-IG-App-ID": "936619743392459",   # Public app ID (no login required)
     }
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
+
         if r.status_code != 200:
             return jsonify({"error": "Profile not found"}), 404
 
-        soup = BeautifulSoup(r.text, "html.parser")
-        title = soup.title.text.strip() if soup.title else ""
+        user = r.json().get("data", {}).get("user", {})
 
-        desc = soup.find("meta", {"name": "description"})
-        desc_content = desc["content"] if desc else ""
-
-        match = re.search(r'([\d.,KM]+)\sFollowers?,\s([\d.,KM]+)\sFollowing', desc_content)
-        followers = extract_number(match.group(1)) if match else None
-        following = extract_number(match.group(2)) if match else None
-
-        bio_tag = soup.find("meta", property="og:description")
-        bio = bio_tag["content"] if bio_tag else None
-        if bio and "• Instagram photos" in bio:
-            bio = None
-
-        posts = re.search(r'"edge_owner_to_timeline_media":{"count":(\d+)}', r.text)
-        reels = re.search(r'"edge_felix_video_media":{"count":(\d+)}', r.text)
-        external = re.search(r'"external_url":"([^"]+)"', r.text)
-        pfp = re.search(r'"profile_pic_url_hd":"([^"]+)"', r.text)
+        followers_raw = user.get("edge_followed_by", {}).get("count")
+        following_raw = user.get("edge_follow", {}).get("count")
 
         return jsonify({
             "status": "success",
-            "username": username,
-            "title": title,
-            "followers": followers,
-            "following": following,
-            "total_posts": posts.group(1) if posts else None,
-            "total_reels": reels.group(1) if reels else None,
-            "bio": bio,
-            "profile_pic": pfp.group(1).replace("\\u0026", "&") if pfp else None,
-            "external_url": external.group(1).replace("\\u0026", "&") if external else None,
+            "username": user.get("username"),
+            "full_name": user.get("full_name"),
+            "bio": user.get("biography"),
+            "followers": followers_raw,
+            "followers_short": format_num(followers_raw),
+            "following": following_raw,
+            "following_short": format_num(following_raw),
+            "total_posts": user.get("edge_owner_to_timeline_media", {}).get("count"),
+            "profile_pic": user.get("profile_pic_url_hd"),
+            "external_url": user.get("external_url"),
+            "is_private": user.get("is_private"),
+            "is_verified": user.get("is_verified")
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+# ==============================
+# RENDER / LOCAL ENTRYPOINT
+# ==============================
+app = app  # For Render deployment
+
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"🚀 Running on port {port}")
+    port = int(os.getenv("PORT", 5000))
+    print(f"🚀 Server running on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
