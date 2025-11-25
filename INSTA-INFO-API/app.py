@@ -1,114 +1,63 @@
-# ------------------------------------------------------------
-# Instagram Info API — FIXED & CLEAN 2025 VERSION
-# Author: Anmol (@FOREVER_HIDDEN)
-# ------------------------------------------------------------
-
-from flask import Flask, jsonify, request
-import requests
-import time
-from functools import lru_cache
-import json
+import httpx
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-INSTAGRAM_SNAPSHOT = "https://www.instagram.com/{}/?__a=1&__d=dis"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/118.0 Safari/537.36"
+}
 
-@lru_cache(maxsize=1024)
-def fetch_profile(username, proxy=None):
-    url = INSTAGRAM_SNAPSHOT.format(username)
+BASE1 = "https://www.instagram.com/api/v1/users/web_profile_info/?username="
+BASE2 = "https://i.instagram.com/api/v1/users/web_profile_info/?username="
+MEDIA_API = "https://www.instagram.com/graphql/query/?query_hash=e769aa130647d2354c40ea6a439bfc08&variables="
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 11; RMX) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0 Mobile Safari/537.36"
-        ),
-        "Accept": "application/json",
-        "Referer": f"https://www.instagram.com/{username}/",
-    }
-
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-
-    for _ in range(3):
+def get_profile(username):
+    urls = [BASE1 + username, BASE2 + username]
+    for u in urls:
         try:
-            r = requests.get(url, headers=headers, proxies=proxies, timeout=10)
-
+            r = httpx.get(u, headers=HEADERS, timeout=10)
             if r.status_code == 200:
-                try:
-                    return r.json()
-                except:
-                    if "graphql" in r.text:
-                        start = r.text.find("{")
-                        end = r.text.rfind("}") + 1
-                        raw = r.text[start:end]
-                        return json.loads(raw)
+                return r.json()
+        except:
+            pass
+    return None
 
-            if r.status_code in (401, 429, 403):
-                time.sleep(1)
-                continue
-
-            if r.status_code == 404:
-                return {"error": "not_found"}
-
-        except Exception:
-            time.sleep(1)
-
-    return {"error": "failed"}
-
-@app.route("/api/insta/<username>")
-def insta(username):
-    proxy = request.args.get("proxy")
-    data = fetch_profile(username, proxy)
-
-    if "error" in data:
-        return jsonify(data)
-
+def get_recent_posts(user_id):
+    payload = {"id": user_id, "first": 12}
+    url = MEDIA_API + httpx.QueryParams(payload).to_str()
     try:
-        g = data.get("graphql", {}).get("user")
-        if not g:
-            return jsonify({"error": "parse_failed", "raw": data})
+        r = httpx.get(url, headers=HEADERS, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+    except:
+        return None
 
-        out = {
-            "id": g.get("id"),
-            "username": g.get("username"),
-            "full_name": g.get("full_name"),
-            "biography": g.get("biography"),
-            "is_private": g.get("is_private"),
-            "is_verified": g.get("is_verified"),
-            "profile_pic_url": g.get("profile_pic_url_hd") or g.get("profile_pic_url"),
-            "followers_count": g.get("edge_followed_by", {}).get("count"),
-            "following_count": g.get("edge_follow", {}).get("count"),
-            "media_count": g.get("edge_owner_to_timeline_media", {}).get("count"),
-            "recent_media": []
-        }
+@app.route("/api/insta/<username>", methods=["GET"])
+def insta(username):
+    profile = get_profile(username)
+    if not profile:
+        return jsonify({"error": "profile_not_found"}), 404
 
-        edges = g.get("edge_owner_to_timeline_media", {}).get("edges", [])
-        for e in edges[:8]:
-            node = e.get("node", {})
+    user = profile.get("data", {}).get("user", {})
+    if not user:
+        return jsonify({"error": "invalid_profile"}), 404
 
-            caption = None
-            cap = node.get("edge_media_to_caption", {}).get("edges", [])
-            if cap:
-                caption = cap[0]["node"].get("text")
+    user_id = user.get("id")
+    posts = get_recent_posts(user_id)
 
-            out["recent_media"].append({
-                "id": node.get("id"),
-                "shortcode": node.get("shortcode"),
-                "display_url": node.get("display_url"),
-                "taken_at": node.get("taken_at_timestamp"),
-                "caption": caption
-            })
+    return jsonify({
+        "status": "success",
+        "user_id": user_id,
+        "username": user.get("username"),
+        "full_name": user.get("full_name"),
+        "bio": user.get("biography"),
+        "is_private": user.get("is_private"),
+        "is_verified": user.get("is_verified"),
+        "followers": user.get("edge_followed_by", {}).get("count"),
+        "following": user.get("edge_follow", {}).get("count"),
+        "profile_pic": user.get("profile_pic_url_hd"),
+        "recent_posts": posts
+    })
 
-        return jsonify(out)
-
-    except Exception as exc:
-        return jsonify({"error": "parse_error", "details": str(exc), "raw": data})
-
-
-# ------------------- START SERVER (NO ERROR NOW) -------------------
-if __name__ == '__main__':
-    import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"[🚀] Starting INSTAGRAM API on port {port} ...")
-
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
